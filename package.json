@@ -1,0 +1,35 @@
+{
+  "name": "souba-checker",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "pages:dev": "wrangler pages dev dist --compatibility-date=2024-11-01 --d1=DB",
+    "db:migrate:local": "wrangler d1 migrations apply souba-checker-workspace --local",
+    "deploy": "npm run build && wrangler pages deploy dist --project-name souba-checker",
+    "deploy:production": "powershell -ExecutionPolicy Bypass -File ./scripts/deploy-production.ps1",
+    "secrets:production": "powershell -ExecutionPolicy Bypass -File ./scripts/set-pages-secrets.ps1"
+  },
+  "dependencies": {
+    "@ericblade/quagga2": "^1.8.4",
+    "echarts": "^6.1.0",
+    "echarts-for-react": "^3.0.6",
+    "idb": "^8.0.2",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "recharts": "^3.8.1",
+    "tslib": "^2.8.1"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250530.0",
+    "@types/react": "^19.1.2",
+    "@types/react-dom": "^19.1.2",
+    "@vitejs/plugin-react": "^4.4.1",
+    "typescript": "~5.8.3",
+    "vite": "^6.3.5",
+    "wrangler": "^4.19.1"
+  }
+}

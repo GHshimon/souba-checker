@@ -1,0 +1,12 @@
+# ローカル開発用テンプレート
+# 1. このファイルを .dev.vars にコピー
+# 2. 各値を自分のキーに差し替え（.dev.vars は git に含めない）
+
+GEMINI_API_KEY=
+# 推奨: gemini-2.5-flash（2.0-flash 系は 2026-03-03 廃止）
+GEMINI_MODEL=gemini-2.5-flash
+RAKUTEN_APP_ID=
+RAKUTEN_ACCESS_KEY=
+# 楽天アプリ設定の「許可されたWebサイト」と同じURLを指定
+RAKUTEN_REFERER=http://127.0.0.1:8788
+YAHOO_CLIENT_ID=

@@ -1,0 +1,13 @@
+name = "souba-checker"
+compatibility_date = "2024-11-01"
+pages_build_output_dir = "dist"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "souba-checker-workspace"
+database_id = "5a77f982-3e9e-490e-9c27-1326821f266d"
+migrations_dir = "migrations"
+
+# シークレットは wrangler pages secret put で登録:
+# GEMINI_API_KEY, GEMINI_MODEL, RAKUTEN_APP_ID, RAKUTEN_ACCESS_KEY, YAHOO_CLIENT_ID
+# WORKSPACE_PASSWORD（任意: 未設定時は認証なし）
