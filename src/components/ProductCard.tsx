@@ -9,6 +9,7 @@ import {
   reasonLabels,
   summarizeIncludedItems,
 } from "../lib/priceStats";
+import { SELL_CHANNELS, evaluateProfit, maxBuyPrice, netProceeds, type ProfitTarget } from "../lib/profit";
 
 interface ProductCardProps {
   product: Product;
@@ -59,6 +60,13 @@ export function ProductCard({
   const [lastIndexBySection, setLastIndexBySection] = useState<Record<string, number>>({});
   const [mainOnlyAggregate, setMainOnlyAggregate] = useState(true);
   const [includedOverrides, setIncludedOverrides] = useState<Record<string, boolean>>({});
+  const [channelId, setChannelId] = useState<string>(SELL_CHANNELS[0].id);
+  const [feePctInput, setFeePctInput] = useState<string>(String(SELL_CHANNELS[0].feeRate * 100));
+  const [sellInput, setSellInput] = useState<string>("");
+  const [shipInput, setShipInput] = useState<string>("");
+  const [otherCostInput, setOtherCostInput] = useState<string>("");
+  const [targetMode, setTargetMode] = useState<"roi" | "amount">("roi");
+  const [targetInput, setTargetInput] = useState<string>("30");
 
   useEffect(() => {
     setSelectedByKey({});
@@ -128,13 +136,31 @@ export function ProductCard({
   );
 
   const costNum = Number(cost.replace(/[^\d]/g, ""));
-  const refPrice =
-    sectionDisplayStats["rakuten-used"]?.min ??
-    sectionDisplayStats["yahoo-used"]?.min ??
-    sectionDisplayStats["rakuten-new"]?.min ??
-    sectionDisplayStats["yahoo-new"]?.min ??
-    null;
-  const profit = costNum > 0 && refPrice != null ? refPrice - costNum : null;
+
+  // 相場は中央値ベース（最安値は付属品・状態差で過小/過大になりやすい）。中古優先、無ければ新品。
+  const usedMedian = sectionDisplayStats["rakuten-used"]?.median ?? sectionDisplayStats["yahoo-used"]?.median ?? null;
+  const newMedian = sectionDisplayStats["rakuten-new"]?.median ?? sectionDisplayStats["yahoo-new"]?.median ?? null;
+  const defaultSell = usedMedian ?? newMedian ?? null;
+  const sellSource = usedMedian != null ? "中古中央値" : newMedian != null ? "新品中央値" : null;
+
+  const sellNum = Number(sellInput.replace(/[^\d]/g, ""));
+  const feeRate = (Number(feePctInput.replace(/[^\d.]/g, "")) || 0) / 100;
+  const shipNum = Number(shipInput.replace(/[^\d]/g, "")) || 0;
+  const otherNum = Number(otherCostInput.replace(/[^\d]/g, "")) || 0;
+  const financeInput = { sellPrice: sellNum, feeRate, shipping: shipNum, otherCost: otherNum };
+  const targetValueNum = Number(targetInput.replace(/[^\d.]/g, "")) || 0;
+  const target: ProfitTarget =
+    targetMode === "roi" ? { mode: "roi", value: targetValueNum / 100 } : { mode: "amount", value: targetValueNum };
+  const net = sellNum > 0 ? netProceeds(financeInput) : null;
+  const maxBuy = sellNum > 0 ? maxBuyPrice(financeInput, target) : null;
+  const evalResult = sellNum > 0 && costNum > 0 ? evaluateProfit(costNum, financeInput) : null;
+  const withinBudget = maxBuy != null && costNum > 0 ? costNum <= maxBuy : null;
+
+  // 新しい価格データが来たら想定売価を中央値で初期化（ユーザー編集後は価格再取得時のみ再セット）
+  useEffect(() => {
+    setSellInput(defaultSell != null ? String(defaultSell) : "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prices]);
   const hasPriceData = Boolean(prices?.rakuten || prices?.yahooShopping || prices?.rakutenUsed || prices?.yahooShoppingUsed);
   const warningList = prices?.warnings || [];
   const hasNewWarning = warningList.some((w) => /(?:rakuten|yahoo_shopping)\(new\):/i.test(w));
@@ -745,15 +771,161 @@ export function ProductCard({
       <div
         style={{
           marginBottom: 14,
-          padding: "10px 12px",
+          padding: "12px 14px",
           borderRadius: 8,
           background: T.bg,
           border: `1px solid ${T.border}`,
         }}
       >
-        <div style={{ fontSize: 11, fontWeight: 600, color: T.text, marginBottom: 8 }}>利益計算（参考）</div>
+        <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 4 }}>利益計算・上限仕入れ値</div>
+        <div style={{ fontSize: 10, color: T.muted, marginBottom: 10, lineHeight: 1.5 }}>
+          手数料・送料を引いた「手取り」ベースで、目標を満たす上限仕入れ値を逆算します。手数料は目安なので実際の料率に合わせて編集してください。
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 96px", gap: 8, marginBottom: 8 }}>
+          <label style={{ display: "grid", gap: 3, minWidth: 0 }}>
+            <span style={{ fontSize: 10, color: T.muted }}>販売先</span>
+            <select
+              value={channelId}
+              onChange={(e) => {
+                const ch = SELL_CHANNELS.find((c) => c.id === e.target.value);
+                setChannelId(e.target.value);
+                if (ch) setFeePctInput(String(+(ch.feeRate * 100).toFixed(2)));
+              }}
+              style={{ border: `1px solid ${T.border}`, borderRadius: 6, padding: "6px 8px", fontSize: 12, background: T.surface }}
+            >
+              {SELL_CHANNELS.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label style={{ display: "grid", gap: 3 }}>
+            <span style={{ fontSize: 10, color: T.muted }}>手数料 %</span>
+            <input
+              value={feePctInput}
+              onChange={(e) => setFeePctInput(e.target.value)}
+              inputMode="decimal"
+              style={{ border: `1px solid ${T.border}`, borderRadius: 6, padding: "6px 8px", fontSize: 13, fontFamily: T.mono, outline: "none" }}
+            />
+          </label>
+        </div>
+
+        <label style={{ display: "grid", gap: 3, minWidth: 0, marginBottom: 8 }}>
+          <span style={{ fontSize: 10, color: T.muted, display: "flex", justifyContent: "space-between", gap: 6 }}>
+            <span>想定売価</span>
+            {defaultSell != null ? (
+              <button
+                type="button"
+                onClick={() => setSellInput(String(defaultSell))}
+                style={{ background: "none", border: "none", color: T.accent, fontSize: 10, cursor: "pointer", padding: 0 }}
+              >
+                ↻ {sellSource}
+              </button>
+            ) : null}
+          </span>
+          <input
+            value={sellInput}
+            onChange={(e) => setSellInput(e.target.value)}
+            placeholder={defaultSell != null ? String(defaultSell) : "例: 8000"}
+            inputMode="numeric"
+            style={{ border: `1px solid ${T.border}`, borderRadius: 6, padding: "6px 8px", fontSize: 13, fontFamily: T.mono, outline: "none" }}
+          />
+        </label>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+          <label style={{ display: "grid", gap: 3, minWidth: 0 }}>
+            <span style={{ fontSize: 10, color: T.muted }}>送料 ¥</span>
+            <input
+              value={shipInput}
+              onChange={(e) => setShipInput(e.target.value)}
+              placeholder="例: 210"
+              inputMode="numeric"
+              style={{ border: `1px solid ${T.border}`, borderRadius: 6, padding: "6px 8px", fontSize: 13, fontFamily: T.mono, outline: "none" }}
+            />
+          </label>
+          <label style={{ display: "grid", gap: 3, minWidth: 0 }}>
+            <span style={{ fontSize: 10, color: T.muted }}>経費 ¥（梱包・清掃等）</span>
+            <input
+              value={otherCostInput}
+              onChange={(e) => setOtherCostInput(e.target.value)}
+              placeholder="例: 100"
+              inputMode="numeric"
+              style={{ border: `1px solid ${T.border}`, borderRadius: 6, padding: "6px 8px", fontSize: 13, fontFamily: T.mono, outline: "none" }}
+            />
+          </label>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: 8, marginBottom: 10, alignItems: "end" }}>
+          <div style={{ display: "grid", gap: 3 }}>
+            <span style={{ fontSize: 10, color: T.muted }}>目標</span>
+            <div style={{ display: "flex", border: `1px solid ${T.border}`, borderRadius: 6, overflow: "hidden" }}>
+              {(["roi", "amount"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => setTargetMode(mode)}
+                  style={{
+                    border: "none",
+                    padding: "6px 10px",
+                    fontSize: 10,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    background: targetMode === mode ? T.accent : T.surface,
+                    color: targetMode === mode ? "#fff" : T.muted,
+                  }}
+                >
+                  {mode === "roi" ? "利益率" : "利益額"}
+                </button>
+              ))}
+            </div>
+          </div>
+          <label style={{ display: "grid", gap: 3, minWidth: 0 }}>
+            <span style={{ fontSize: 10, color: T.muted }}>
+              {targetMode === "roi" ? "対仕入れ利益率（ROI）%" : "確保したい粗利額 ¥"}
+            </span>
+            <input
+              value={targetInput}
+              onChange={(e) => setTargetInput(e.target.value)}
+              inputMode="numeric"
+              style={{ border: `1px solid ${T.border}`, borderRadius: 6, padding: "6px 8px", fontSize: 13, fontFamily: T.mono, outline: "none" }}
+            />
+          </label>
+        </div>
+
+        <div
+          style={{
+            padding: "10px 12px",
+            borderRadius: 8,
+            background: maxBuy != null && maxBuy > 0 ? T.accentBg : T.surface,
+            border: `1px solid ${maxBuy != null && maxBuy > 0 ? `${T.accent}33` : T.border}`,
+            marginBottom: 10,
+          }}
+        >
+          <div style={{ fontSize: 10, color: T.muted }}>上限仕入れ値（この額以下で仕入れれば目標達成）</div>
+          <div
+            style={{
+              fontSize: 20,
+              fontWeight: 800,
+              color: maxBuy != null && maxBuy > 0 ? T.accent : T.muted,
+              fontFamily: T.mono,
+            }}
+          >
+            {maxBuy != null ? formatYen(maxBuy) : "—"}
+          </div>
+          {net != null ? (
+            <div style={{ fontSize: 10, color: T.muted, marginTop: 2, lineHeight: 1.5 }}>
+              手取り {formatYen(net)}（売価 {formatYen(sellNum)} − 手数料 {Math.round(feeRate * 100)}% − 送料 {formatYen(shipNum)}
+              {otherNum ? ` − 経費 ${formatYen(otherNum)}` : ""}）
+            </div>
+          ) : (
+            <div style={{ fontSize: 10, color: T.muted, marginTop: 2 }}>想定売価を入力すると逆算します。</div>
+          )}
+        </div>
+
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 12, color: T.muted, whiteSpace: "nowrap" }}>仕入れ値</span>
+          <span style={{ fontSize: 11, color: T.muted, whiteSpace: "nowrap" }}>仕入れ値</span>
           <input
             value={cost}
             onChange={(e) => setCost(e.target.value)}
@@ -761,7 +933,8 @@ export function ProductCard({
             inputMode="numeric"
             style={{
               flex: 1,
-              border: `1px solid ${T.border}`,
+              minWidth: 0,
+              border: `1px solid ${withinBudget === false ? T.danger : T.border}`,
               borderRadius: 6,
               padding: "6px 8px",
               fontSize: 13,
@@ -769,13 +942,42 @@ export function ProductCard({
               outline: "none",
             }}
           />
+          {withinBudget != null ? (
+            <span
+              style={{
+                fontSize: 11,
+                fontWeight: 800,
+                padding: "4px 10px",
+                borderRadius: 6,
+                whiteSpace: "nowrap",
+                background: withinBudget ? T.successBg : T.dangerBg,
+                color: withinBudget ? T.success : T.danger,
+              }}
+            >
+              {withinBudget ? "買い" : "見送り"}
+            </span>
+          ) : null}
         </div>
-        {profit != null && (
-          <div style={{ marginTop: 8, fontSize: 12 }}>
-            想定粗利（最安参考）:{" "}
-            <span style={{ fontWeight: 700, color: profit >= 0 ? T.success : T.danger }}>{formatYen(profit)}</span>
+        {evalResult ? (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginTop: 8 }}>
+            <div>
+              <div style={{ fontSize: 9, color: T.muted }}>粗利</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: evalResult.profit >= 0 ? T.success : T.danger }}>
+                {formatYen(evalResult.profit)}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: 9, color: T.muted }}>ROI（対仕入れ）</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: evalResult.roi >= 0 ? T.text : T.danger }}>
+                {Math.round(evalResult.roi * 100)}%
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: 9, color: T.muted }}>利益率（対売価）</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{Math.round(evalResult.marginOnSell * 100)}%</div>
+            </div>
           </div>
-        )}
+        ) : null}
       </div>
 
       <div style={{ fontSize: 11, color: T.muted, marginBottom: 8 }}>流動量・落札相場の参考 →</div>
