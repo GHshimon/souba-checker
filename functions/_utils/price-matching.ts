@@ -100,6 +100,17 @@ const ACCESSORY_KEYWORDS = [
   "for ",
   "対応",
   "専用",
+  "ボディキャップ",
+  "レンズキャップ",
+  "サムグリップ",
+  "接眼",
+  "接眼レンズ",
+  "アイカップ",
+  "バッテリーグリップ",
+  "互換品",
+  "パーツ",
+  "部品",
+  "修理",
 ];
 
 const OPTIONAL_QUERY_TOKENS = new Set(["gen", "generation", "carbon", "pro", "max", "plus", "mini", "lite", "ultra"]);
@@ -188,8 +199,8 @@ export function classifyItemType(title: string): ItemType {
   return "unknown";
 }
 
-function hasModelToken(tokens: string[]) {
-  return tokens.some((t) => /\d/.test(t) && /[a-z]/i.test(t));
+function signatureHasModelToken(signature: QuerySignature) {
+  return signature.requiredTokens.some((t) => /\d/.test(t));
 }
 
 function modelExactHit(titleNorm: string, signature: QuerySignature) {
@@ -285,7 +296,10 @@ export function scoreListing(
 
   const total = coreMatch + itemTypeScore - noise;
 
-  const included = itemType === "main" && total >= INCLUSION_SCORE_THRESHOLD;
+  let included = itemType === "main" && total >= INCLUSION_SCORE_THRESHOLD;
+  if (included && signatureHasModelToken(signature) && !modelExact) {
+    included = false;
+  }
 
   const reasons = buildReasons({
     itemType,
@@ -389,33 +403,47 @@ export function scoreAndSummarizeListings(
   const includedPrices = trimPricesForStats(
     scored.filter((s) => s.included).map((s) => s.price),
   );
+  let statsPrices = includedPrices;
 
-  if (!includedPrices.length) {
-    const validPrices = trimPricesForStats(scored.map((s) => s.price));
-    const stats = calcStatsFromPrices(validPrices);
-    if (!stats) return null;
-    const minItem = scored.find((s) => s.price === stats.min) || scored[0];
-    return {
-      items: scored.map((s) => ({
-        title: s.title,
-        price: s.price,
-        url: s.url,
-        site: s.site,
-        itemType: s.itemType,
-        included: s.included,
-        score: s.scores.total,
-        reasons: s.reasons,
-      })),
-      ...stats,
-      currency: "JPY",
-      minUrl: minItem?.url,
-      minTitle: minItem?.title,
-      makerFilterApplied,
-      matchingQuery: signature.normalized,
-    };
+  if (!statsPrices.length) {
+    const relaxed = scored.filter(
+      (s) =>
+        s.itemType !== "accessory" &&
+        s.scores.total >= INCLUSION_SCORE_THRESHOLD - 8 &&
+        (!signatureHasModelToken(signature) || s.match.modelExact),
+    );
+    statsPrices = trimPricesForStats(relaxed.map((s) => s.price));
+    if (!statsPrices.length && relaxed.length) {
+      statsPrices = trimPricesForStats(relaxed.slice(0, Math.min(5, relaxed.length)).map((s) => s.price));
+    }
+    if (!statsPrices.length) {
+      return {
+        items: scored.map((s) => ({
+          title: s.title,
+          price: s.price,
+          url: s.url,
+          site: s.site,
+          itemType: s.itemType,
+          included: false,
+          score: s.scores.total,
+          reasons: [...s.reasons, "stats_excluded"],
+        })),
+        min: undefined,
+        max: undefined,
+        avg: undefined,
+        median: undefined,
+        count: 0,
+        currency: "JPY",
+        minUrl: scored[0]?.url,
+        minTitle: scored[0]?.title,
+        makerFilterApplied,
+        matchingQuery: signature.normalized,
+        statsExcluded: true,
+      };
+    }
   }
 
-  const stats = calcStatsFromPrices(includedPrices)!;
+  const stats = calcStatsFromPrices(statsPrices)!;
   const minItem = scored.find((s) => s.included && s.price === stats.min) || scored.find((s) => s.price === stats.min) || scored[0];
 
   return {
@@ -435,5 +463,52 @@ export function scoreAndSummarizeListings(
     minTitle: minItem?.title,
     makerFilterApplied,
     matchingQuery: signature.normalized,
+  };
+}
+
+export function applyReferencePriceFloor<T extends {
+  items?: Array<{ price: number; included?: boolean; itemType?: string; title?: string; url?: string; score?: number; reasons?: string[]; site?: PriceSite }>;
+  min?: number;
+  max?: number;
+  avg?: number;
+  median?: number;
+  count?: number;
+  minUrl?: string;
+  minTitle?: string;
+  currency?: string;
+  makerFilterApplied?: boolean;
+  matchingQuery?: string;
+  statsExcluded?: boolean;
+}>(summary: T | null, referenceMedian?: number, ratio = 0.45): T | null {
+  if (!summary?.items?.length || !referenceMedian) return summary;
+  if ((summary.median ?? Number.MAX_SAFE_INTEGER) >= referenceMedian * ratio) return summary;
+
+  const floor = Math.round(referenceMedian * 0.25);
+  const items = summary.items.map((item) => ({
+    ...item,
+    included: Boolean(item.included && item.itemType === "main" && item.price >= floor),
+  }));
+  const prices = trimPricesForStats(items.filter((i) => i.included).map((i) => i.price));
+  if (!prices.length) {
+    return {
+      ...summary,
+      items,
+      min: undefined,
+      max: undefined,
+      avg: undefined,
+      median: undefined,
+      count: 0,
+      statsExcluded: true,
+    };
+  }
+  const stats = calcStatsFromPrices(prices)!;
+  const minItem = items.find((i) => i.included && i.price === stats.min) || items.find((i) => i.price === stats.min);
+  return {
+    ...summary,
+    items,
+    ...stats,
+    minUrl: minItem?.url ?? summary.minUrl,
+    minTitle: minItem?.title ?? summary.minTitle,
+    statsExcluded: false,
   };
 }

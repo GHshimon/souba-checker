@@ -20,9 +20,11 @@ Write-Host "Building..." -ForegroundColor Cyan
 npm run build
 
 Write-Host "Deploying to Cloudflare Pages ($ProjectName)..." -ForegroundColor Cyan
-$deployOut = npx wrangler pages deploy dist --project-name $ProjectName --commit-dirty=true 2>&1 | Out-String
-Write-Host $deployOut
-if ($LASTEXITCODE -ne 0) {
+$deployOut = & npx wrangler pages deploy dist --project-name $ProjectName --commit-dirty=true 2>&1
+$deployExit = $LASTEXITCODE
+$deployText = ($deployOut | Out-String)
+Write-Host $deployText
+if ($deployExit -ne 0 -and $deployText -notmatch "Deployment complete") {
   Write-Error "Pages deploy failed."
 }
 

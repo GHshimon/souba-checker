@@ -1,4 +1,4 @@
-import { Suspense, lazy, useCallback, useEffect, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
 import { BarcodeResult } from "./components/BarcodeResult";
 import { DropZone } from "./components/DropZone";
 import { HistoryItem } from "./components/HistoryItem";
@@ -9,6 +9,7 @@ import { fetchPrices, fetchSimilarProducts, identifyProduct } from "./lib/api";
 import { btnStyle, T } from "./lib/constants";
 import { clearHistory, loadHistory, saveHistory } from "./lib/db";
 import { compressImage, dataUrlToBase64, detectBarcode } from "./lib/image";
+import { loadResearchDraft, saveResearchDraft } from "./lib/researchDraft";
 import type {
   BarcodeResult as BarcodeResultType,
   CompressedImage,
@@ -227,6 +228,26 @@ export default function App() {
     loadPrices(productId, trimmed, target?.brand);
   };
 
+  const currentResearch = useMemo(() => {
+    const product = products.find((p) => !excludedProductIds[p.id]) || products[0];
+    if (!product?.searchQuery?.trim()) return null;
+    return {
+      name: product.name,
+      query: product.searchQuery.trim(),
+      category: product.category || "未分類",
+    };
+  }, [products, excludedProductIds]);
+
+  useEffect(() => {
+    if (currentResearch) saveResearchDraft(currentResearch);
+  }, [currentResearch]);
+
+  const watchlistDraft = useMemo(() => {
+    if (currentResearch) return currentResearch;
+    if (activeTab === "insights") return loadResearchDraft();
+    return null;
+  }, [activeTab, currentResearch]);
+
   return (
     <div
       style={{
@@ -434,7 +455,12 @@ export default function App() {
             </div>
           }
         >
-          <InsightsPanel />
+          <InsightsPanel
+            key={`${watchlistDraft?.query || "empty"}:${watchlistDraft?.name || ""}`}
+            initialName={watchlistDraft?.name}
+            initialQuery={watchlistDraft?.query}
+            initialCategory={watchlistDraft?.category}
+          />
         </Suspense>
       )}
       <div

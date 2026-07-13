@@ -1,6 +1,10 @@
 import type { CSSProperties } from "react";
 import type { Market } from "../types";
 
+function aucfanQueryPath(query: string) {
+  return encodeURIComponent(query.trim()).replace(/%20/g, ".20");
+}
+
 /** 流動量・落札相場の参考リンク（APIなし） */
 export const LIQUIDITY_MARKETS: Market[] = [
   {
@@ -15,7 +19,7 @@ export const LIQUIDITY_MARKETS: Market[] = [
     name: "オークファン",
     color: "#2563eb",
     icon: "📈",
-    url: (q) => `https://aucfan.com/search1/new/?keyword=${encodeURIComponent(q)}`,
+    url: (q) => `https://aucfan.com/search1/q-${aucfanQueryPath(q)}/s-mix/?o=de&location=0&shopid=`,
   },
   {
     id: "mercari_sold",
@@ -23,13 +27,6 @@ export const LIQUIDITY_MARKETS: Market[] = [
     color: "#4dc9f6",
     icon: "🏷️",
     url: (q) => `https://jp.mercari.com/search?keyword=${encodeURIComponent(q)}&status=sold_out`,
-  },
-  {
-    id: "priceboard",
-    name: "プライスボード",
-    color: "#7c3aed",
-    icon: "💹",
-    url: (q) => `https://www.priceboard.jp/s/search?keyword=${encodeURIComponent(q)}`,
   },
   {
     id: "yahoo_active",

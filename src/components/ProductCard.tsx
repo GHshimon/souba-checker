@@ -395,7 +395,7 @@ export function ProductCard({
           }}
         >
           <div style={{ fontSize: 11, fontWeight: 600, color: T.accent, marginBottom: 8 }}>
-            API参考価格（店舗・新品中心）
+            API参考価格（販売中・本体集計）
           </div>
           {pricesLoading ? (
             <div style={{ fontSize: 12, color: T.muted }}>価格取得中...</div>
@@ -406,7 +406,7 @@ export function ProductCard({
               ) : null}
               <div style={{ display: "grid", gap: 10, fontSize: 12 }}>
                 <div>
-                  <div style={{ color: T.text, fontSize: 11, fontWeight: 700, marginBottom: 6 }}>新品参考</div>
+                  <div style={{ color: T.text, fontSize: 11, fontWeight: 700, marginBottom: 6 }}>新品参考（販売中）</div>
                   {hasNewWarning ? (
                     <div style={{ fontSize: 12, color: T.warn, fontWeight: 700 }}>API取得エラー(新品警告)</div>
                   ) : (
@@ -453,7 +453,7 @@ export function ProductCard({
                   )}
                 </div>
                 <div>
-                  <div style={{ color: T.text, fontSize: 11, fontWeight: 700, marginBottom: 6 }}>中古参考（検索語 +「中古」）</div>
+                  <div style={{ color: T.text, fontSize: 11, fontWeight: 700, marginBottom: 6 }}>中古参考（販売中・検索語+「中古」）</div>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                     <div>
                       <div style={{ color: T.muted, fontSize: 10 }}>楽天 最安 / 中央 / 平均（本体集計）</div>

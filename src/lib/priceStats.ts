@@ -21,6 +21,10 @@ export function itemTypeLabel(type?: ItemType) {
 
 export function defaultIncludedForItem(item: PriceListItem, mainOnly: boolean) {
   if (item.includedOverride != null) return item.includedOverride;
+  if (item.included != null) {
+    if (mainOnly) return Boolean(item.included && item.itemType === "main");
+    return Boolean(item.included);
+  }
   const score = item.score ?? 0;
   if (mainOnly) return item.itemType === "main" && score >= INCLUSION_SCORE_THRESHOLD;
   return (item.itemType === "main" || item.itemType === "bundle") && score >= INCLUSION_SCORE_THRESHOLD;
@@ -70,6 +74,8 @@ export function reasonLabels(reasons?: string[]) {
     excluded_not_main: "本体以外",
     below_score_threshold: "スコア不足",
     excluded_by_rule: "ルール除外",
+    stats_excluded: "集計対象なし",
+    model_required: "型番必須不一致",
   };
   return reasons.map((r) => map[r] || r).join(" / ");
 }

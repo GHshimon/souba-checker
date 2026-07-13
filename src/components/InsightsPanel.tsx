@@ -1,8 +1,16 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import ReactECharts from "echarts-for-react";
 import { buildAggregationChartOption, formatYen } from "../lib/aggregationChart";
 import { fetchPrices } from "../lib/api";
 import { T } from "../lib/constants";
+import {
+  collectCategories,
+  filterReports,
+  filterWatchlist,
+  type ListFilterState,
+  type ReportSort,
+  type WatchlistSort,
+} from "../lib/insightsListUtils";
 import {
   enqueueWorkspaceWatchlistAdd,
   enqueueWorkspaceWatchlistDelete,
@@ -18,6 +26,12 @@ import {
 } from "../lib/workspaceAuth";
 import type { AggregationReport, WatchlistItem } from "../types";
 
+interface InsightsPanelProps {
+  initialName?: string;
+  initialQuery?: string;
+  initialCategory?: string;
+}
+
 function formatDate(ts: number) {
   return new Date(ts).toLocaleString("ja-JP", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
@@ -28,7 +42,76 @@ function isDueWeekly(item: WatchlistItem) {
   return Date.now() - item.lastAggregatedAt >= weekMs;
 }
 
-export function InsightsPanel() {
+const compactSelectStyle = {
+  border: `1px solid ${T.border}`,
+  borderRadius: 6,
+  padding: "5px 6px",
+  fontSize: 10,
+  background: T.surface,
+} as const;
+
+const compactInputStyle = {
+  border: `1px solid ${T.border}`,
+  borderRadius: 6,
+  padding: "5px 8px",
+  fontSize: 10,
+  background: T.surface,
+} as const;
+
+const scrollListStyle = {
+  maxHeight: 260,
+  overflowY: "auto" as const,
+  border: `1px solid ${T.border}`,
+  borderRadius: 8,
+  background: T.bg,
+};
+
+function ListFilterBar(props: {
+  search: string;
+  category: string;
+  sortValue: string;
+  sortOptions: Array<{ value: string; label: string }>;
+  categories: string[];
+  countLabel: string;
+  extra?: ReactNode;
+  onSearchChange: (value: string) => void;
+  onCategoryChange: (value: string) => void;
+  onSortChange: (value: string) => void;
+}) {
+  return (
+    <div style={{ display: "grid", gap: 6, marginBottom: 8 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+        <input
+          placeholder="名前・検索語で絞り込み"
+          value={props.search}
+          onChange={(e) => props.onSearchChange(e.target.value)}
+          style={compactInputStyle}
+        />
+        <select value={props.category} onChange={(e) => props.onCategoryChange(e.target.value)} style={compactSelectStyle}>
+          <option value="all">カテゴリ: すべて</option>
+          {props.categories.map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+        <select value={props.sortValue} onChange={(e) => props.onSortChange(e.target.value)} style={compactSelectStyle}>
+          {props.sortOptions.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+        {props.extra}
+        <span style={{ marginLeft: "auto", fontSize: 10, color: T.muted }}>{props.countLabel}</span>
+      </div>
+    </div>
+  );
+}
+
+export function InsightsPanel({ initialName, initialQuery, initialCategory }: InsightsPanelProps) {
   const [watchlist, setWatchlist] = useState<WatchlistItem[]>([]);
   const [reports, setReports] = useState<AggregationReport[]>([]);
   const [running, setRunning] = useState(false);
@@ -38,19 +121,35 @@ export function InsightsPanel() {
   const [authReady, setAuthReady] = useState(false);
   const [password, setPassword] = useState("");
   const [authError, setAuthError] = useState("");
-  const [name, setName] = useState("");
-  const [query, setQuery] = useState("");
-  const [category, setCategory] = useState("未分類");
+  const [name, setName] = useState(initialName || "");
+  const [query, setQuery] = useState(initialQuery || "");
+  const [category, setCategory] = useState(initialCategory || "未分類");
   const [selectedWatchIds, setSelectedWatchIds] = useState<string[]>([]);
   const [chartTarget, setChartTarget] = useState<"new" | "used">("used");
   const [chartMetric, setChartMetric] = useState<"min" | "median" | "avg">("median");
   const [maxPoints, setMaxPoints] = useState(12);
+  const [watchFilter, setWatchFilter] = useState<ListFilterState>({ search: "", category: "all" });
+  const [watchSort, setWatchSort] = useState<WatchlistSort>("due");
+  const [watchDueOnly, setWatchDueOnly] = useState(false);
+  const [reportFilter, setReportFilter] = useState<ListFilterState>({ search: "", category: "all" });
+  const [reportSort, setReportSort] = useState<ReportSort>("runAtDesc");
 
-  const categories = useMemo(() => {
-    const set = new Set<string>(["未分類", "PC周辺機器", "ガジェット", "家電", "ゲーム", "本", "日用品"]);
-    watchlist.forEach((w) => set.add(w.category));
+  const categories = useMemo(() => collectCategories(watchlist, reports), [watchlist, reports]);
+  const registerCategories = useMemo(() => {
+    const set = new Set(categories);
+    if (category.trim()) set.add(category.trim());
     return Array.from(set);
-  }, [watchlist]);
+  }, [categories, category]);
+
+  const filteredWatchlist = useMemo(
+    () => filterWatchlist(watchlist, watchFilter, watchSort, watchDueOnly, isDueWeekly),
+    [watchlist, watchFilter, watchSort, watchDueOnly],
+  );
+
+  const filteredReports = useMemo(
+    () => filterReports(reports, reportFilter, reportSort),
+    [reports, reportFilter, reportSort],
+  );
 
   const refresh = async () => {
     try {
@@ -77,6 +176,12 @@ export function InsightsPanel() {
       })
       .catch(() => setAuthReady(true));
   }, []);
+
+  useEffect(() => {
+    if (initialName !== undefined) setName(initialName);
+    if (initialQuery !== undefined) setQuery(initialQuery);
+    if (initialCategory !== undefined) setCategory(initialCategory || "未分類");
+  }, [initialName, initialQuery, initialCategory]);
 
   useEffect(() => {
     if (!authReady) return;
@@ -244,7 +349,7 @@ export function InsightsPanel() {
               onChange={(e) => setCategory(e.target.value)}
               style={{ border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 10px", fontSize: 12 }}
             >
-              {categories.map((c) => (
+              {registerCategories.map((c) => (
                 <option key={c} value={c}>
                   {c}
                 </option>
@@ -284,54 +389,143 @@ export function InsightsPanel() {
             </button>
           </div>
         </div>
-        {message ? <div style={{ fontSize: 11, color: T.muted }}>{message}</div> : null}
-        <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
-          {watchlist.map((w) => (
-            <div key={w.id} style={{ border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 10px", background: T.bg }}>
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-                <div>
-                  <div style={{ fontSize: 12, fontWeight: 700 }}>{w.name}</div>
-                  <div style={{ fontSize: 10, color: T.muted }}>{w.query}</div>
-                  <div style={{ fontSize: 10, color: T.muted }}>
-                    {w.category} / weekly / 最終: {w.lastAggregatedAt ? formatDate(w.lastAggregatedAt) : "未実行"}
-                  </div>
+        {message ? <div style={{ fontSize: 10, color: T.muted, marginBottom: 6 }}>{message}</div> : null}
+        <ListFilterBar
+          search={watchFilter.search}
+          category={watchFilter.category}
+          sortValue={watchSort}
+          sortOptions={[
+            { value: "due", label: "期限順" },
+            { value: "name", label: "名前順" },
+            { value: "category", label: "カテゴリ順" },
+            { value: "lastRun", label: "最終集計順" },
+            { value: "created", label: "登録順" },
+          ]}
+          categories={categories}
+          countLabel={`${filteredWatchlist.length} / ${watchlist.length}件`}
+          onSearchChange={(search) => setWatchFilter((prev) => ({ ...prev, search }))}
+          onCategoryChange={(categoryValue) => setWatchFilter((prev) => ({ ...prev, category: categoryValue }))}
+          onSortChange={(value) => setWatchSort(value as WatchlistSort)}
+          extra={
+            <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: T.muted }}>
+              <input type="checkbox" checked={watchDueOnly} onChange={(e) => setWatchDueOnly(e.currentTarget.checked)} />
+              期限分のみ
+            </label>
+          }
+        />
+        <div style={scrollListStyle}>
+          {filteredWatchlist.map((w, idx) => (
+            <div
+              key={w.id}
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr auto",
+                gap: 6,
+                padding: "6px 8px",
+                borderBottom: idx === filteredWatchlist.length - 1 ? "none" : `1px solid ${T.border}`,
+                fontSize: 10,
+              }}
+            >
+              <div style={{ minWidth: 0 }}>
+                <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: T.text }}>{w.name}</span>
+                  <span
+                    style={{
+                      fontSize: 9,
+                      padding: "1px 6px",
+                      borderRadius: 999,
+                      background: T.accentBg,
+                      color: T.accent,
+                      fontWeight: 600,
+                    }}
+                  >
+                    {w.category}
+                  </span>
+                  {isDueWeekly(w) ? (
+                    <span style={{ fontSize: 9, color: T.warn, fontWeight: 600 }}>要集計</span>
+                  ) : null}
                 </div>
-                <button
-                  type="button"
-                  onClick={() => deleteWatch(w.id)}
-                  style={{ border: "none", background: "none", color: T.danger, fontSize: 11, cursor: "pointer" }}
+                <div
+                  style={{
+                    marginTop: 2,
+                    color: T.muted,
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                  title={w.query}
                 >
-                  削除
-                </button>
+                  {w.query}
+                </div>
+                <div style={{ marginTop: 2, color: T.muted }}>
+                  最終: {w.lastAggregatedAt ? formatDate(w.lastAggregatedAt) : "未実行"}
+                </div>
               </div>
+              <button
+                type="button"
+                onClick={() => deleteWatch(w.id)}
+                style={{ border: "none", background: "none", color: T.danger, fontSize: 10, cursor: "pointer", alignSelf: "start" }}
+              >
+                削除
+              </button>
             </div>
           ))}
-          {!watchlist.length ? <div style={{ fontSize: 11, color: T.muted }}>登録リストはまだありません。</div> : null}
+          {!filteredWatchlist.length ? (
+            <div style={{ fontSize: 10, color: T.muted, padding: "10px 8px" }}>
+              {watchlist.length ? "条件に一致するリストがありません。" : "登録リストはまだありません。"}
+            </div>
+          ) : null}
         </div>
       </div>
 
       <div style={{ border: `1px solid ${T.border}`, background: T.surface, borderRadius: 12, padding: 12 }}>
-        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>分析結果（最新順）</div>
-        <div style={{ display: "grid", gap: 8 }}>
-          {reports.map((r) => (
-            <div key={r.id} style={{ border: `1px solid ${T.border}`, borderRadius: 8, padding: "8px 10px", background: T.bg }}>
-              <div style={{ fontSize: 12, fontWeight: 700 }}>
-                {r.watchlistName} <span style={{ fontWeight: 400, color: T.muted }}>({r.category})</span>
+        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>分析結果</div>
+        <ListFilterBar
+          search={reportFilter.search}
+          category={reportFilter.category}
+          sortValue={reportSort}
+          sortOptions={[
+            { value: "runAtDesc", label: "実行日（新しい順）" },
+            { value: "runAtAsc", label: "実行日（古い順）" },
+            { value: "name", label: "名前順" },
+            { value: "category", label: "カテゴリ順" },
+          ]}
+          categories={categories}
+          countLabel={`${filteredReports.length} / ${reports.length}件`}
+          onSearchChange={(search) => setReportFilter((prev) => ({ ...prev, search }))}
+          onCategoryChange={(categoryValue) => setReportFilter((prev) => ({ ...prev, category: categoryValue }))}
+          onSortChange={(value) => setReportSort(value as ReportSort)}
+        />
+        <div style={scrollListStyle}>
+          {filteredReports.map((r, idx) => (
+            <div
+              key={r.id}
+              style={{
+                padding: "6px 8px",
+                borderBottom: idx === filteredReports.length - 1 ? "none" : `1px solid ${T.border}`,
+                fontSize: 10,
+              }}
+            >
+              <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                <span style={{ fontSize: 11, fontWeight: 700 }}>{r.watchlistName}</span>
+                <span style={{ fontSize: 9, color: T.muted }}>{r.category}</span>
+                <span style={{ fontSize: 9, color: T.muted }}>{formatDate(r.runAt)}</span>
               </div>
-              <div style={{ fontSize: 10, color: T.muted, marginTop: 2 }}>実行: {formatDate(r.runAt)}</div>
-              <div style={{ marginTop: 6, fontSize: 11 }}>
-                新品 最安/中央値/平均: {formatYen(r.prices.rakuten?.min ?? r.prices.yahooShopping?.min)} /{" "}
-                {formatYen(r.prices.rakuten?.median ?? r.prices.yahooShopping?.median)} /{" "}
-                {formatYen(r.prices.rakuten?.avg ?? r.prices.yahooShopping?.avg)}
+              <div style={{ marginTop: 3, color: T.text, lineHeight: 1.4 }}>
+                新品 {formatYen(r.prices.rakuten?.median ?? r.prices.yahooShopping?.median)} / 中古{" "}
+                {formatYen(r.prices.rakutenUsed?.median ?? r.prices.yahooShoppingUsed?.median)}
               </div>
-              <div style={{ marginTop: 2, fontSize: 11 }}>
-                中古 最安/中央値/平均: {formatYen(r.prices.rakutenUsed?.min ?? r.prices.yahooShoppingUsed?.min)} /{" "}
-                {formatYen(r.prices.rakutenUsed?.median ?? r.prices.yahooShoppingUsed?.median)} /{" "}
-                {formatYen(r.prices.rakutenUsed?.avg ?? r.prices.yahooShoppingUsed?.avg)}
+              <div style={{ marginTop: 1, color: T.muted, lineHeight: 1.4 }}>
+                最安 {formatYen(r.prices.rakuten?.min ?? r.prices.yahooShopping?.min)} /{" "}
+                {formatYen(r.prices.rakutenUsed?.min ?? r.prices.yahooShoppingUsed?.min)}
               </div>
             </div>
           ))}
-          {!reports.length ? <div style={{ fontSize: 11, color: T.muted }}>分析結果はまだありません。</div> : null}
+          {!filteredReports.length ? (
+            <div style={{ fontSize: 10, color: T.muted, padding: "10px 8px" }}>
+              {reports.length ? "条件に一致する分析結果がありません。" : "分析結果はまだありません。"}
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -354,11 +548,21 @@ export function InsightsPanel() {
             <option value={52}>52点</option>
           </select>
         </div>
-        <div style={{ display: "grid", gap: 6, marginBottom: 10 }}>
+        <div style={{ ...scrollListStyle, maxHeight: 140, marginBottom: 10 }}>
           {watchlist.map((w) => {
             const checked = selectedWatchIds.includes(w.id);
             return (
-              <label key={w.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11 }}>
+              <label
+                key={w.id}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  fontSize: 10,
+                  padding: "5px 8px",
+                  borderBottom: `1px solid ${T.border}`,
+                }}
+              >
                 <input
                   type="checkbox"
                   checked={checked}
@@ -369,7 +573,7 @@ export function InsightsPanel() {
                     setSelectedWatchIds(next);
                   }}
                 />
-                <span>{w.name}</span>
+                <span style={{ fontWeight: 600 }}>{w.name}</span>
                 <span style={{ color: T.muted }}>({w.category})</span>
               </label>
             );

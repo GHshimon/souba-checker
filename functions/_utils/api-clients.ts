@@ -7,6 +7,11 @@ type PricePoint = {
   title?: string;
 };
 
+type PriceFetchOptions = {
+  /** true=販売中のみ (availability=1). 落札済み/SOLD OUT はAPI非対応のため常に販売中 */
+  availableOnly?: boolean;
+};
+
 const IDENTIFY_PROMPT = `あなたはせどり業者向けの商品特定AIです。
 与えられた複数の写真から、写っている商品を同一商品/別商品で整理して列挙してください。
 
@@ -333,7 +338,7 @@ export async function lookupJanWithYahoo(jan: string, env: Env) {
   };
 }
 
-export async function fetchRakutenPrices(query: string, env: Env, maker?: string) {
+export async function fetchRakutenPrices(query: string, env: Env, maker?: string, options: PriceFetchOptions = {}) {
   const appId = env.RAKUTEN_APP_ID;
   const accessKey = env.RAKUTEN_ACCESS_KEY;
   if (!appId || !accessKey) return null;
@@ -348,6 +353,7 @@ export async function fetchRakutenPrices(query: string, env: Env, maker?: string
   url.searchParams.set("keyword", query);
   url.searchParams.set("hits", "30");
   url.searchParams.set("sort", "+itemPrice");
+  url.searchParams.set("availability", options.availableOnly === false ? "0" : "1");
 
   const resp = await fetch(url.toString(), {
     // Some runtimes ignore manual Referer headers; use fetch referrer fields first.
@@ -385,10 +391,11 @@ export async function fetchRakutenPrices(query: string, env: Env, maker?: string
     })),
   ].filter((p) => p.price > 0);
 
-  return summarizePricePoints(points, query, "rakuten", maker);
+  const fallbackSearchUrl = `https://search.rakuten.co.jp/search/mall/${encodeURIComponent(query)}/`;
+  return scoreAndSummarizeListings(points, query, "rakuten", maker, fallbackSearchUrl);
 }
 
-export async function fetchYahooShoppingPrices(query: string, env: Env, maker?: string) {
+export async function fetchYahooShoppingPrices(query: string, env: Env, maker?: string, _options: PriceFetchOptions = {}) {
   const clientId = env.YAHOO_CLIENT_ID;
   if (!clientId) return null;
 
