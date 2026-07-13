@@ -4,6 +4,11 @@
 > 既存の相場チェッカー（Cloudflare Pages）に取り込むための構成。
 > 最終更新: 2026-07-13 / 対象ブランチ: `claude/used-goods-tool-review-5w445h`
 
+> **実装状況**: 受け皿（レイヤーA側）は実装済み。
+> `migrations/0002_sold.sql`（`sold_stats` / `ingest_ops`）、`POST /api/ingest`（`INGEST_TOKEN`認可・バッチ/行の二重冪等）、
+> `GET /api/sold`、および Phase 1 のCSV収集スクリプト `collector/`。
+> レイヤーBの Keepa/オークファンAPI（Phase 2）・Playwright収集（Phase 3）は設計のみ（未実装）。
+
 ---
 
 ## 1. なぜ二層にするのか

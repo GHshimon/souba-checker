@@ -6,6 +6,8 @@ export interface Env {
   RAKUTEN_REFERER?: string;
   YAHOO_CLIENT_ID?: string;
   WORKSPACE_PASSWORD?: string;
+  /** 収集ワーカー(レイヤーB)が /api/ingest に書き込むための専用トークン。未設定なら取込は無効 */
+  INGEST_TOKEN?: string;
   DB?: D1Database;
 }
 

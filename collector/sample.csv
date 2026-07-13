@@ -1,0 +1,5 @@
+query,jan,source,condition,sold_min,sold_median,sold_avg,sold_max,sample_size,sold_count_7d,active_count,window_days,collected_at
+Nintendo Switch 有機ELモデル ホワイト,4902370548495,aucfan,good,26000,29800,29500,34000,42,18,60,30,2026-07-01
+Nintendo Switch 有機ELモデル ホワイト,4902370548495,mercari_sold,like_new,31000,34000,33800,37000,25,12,40,30,2026-07-01
+Anker PowerCore 10000,,aucfan,good,1200,1800,1850,2600,60,30,120,30,2026-07-01
+SONY WH-1000XM4 ブラック,,mercari_sold,good,18000,23500,23200,28000,55,20,80,30,2026-07-01
